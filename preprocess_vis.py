@@ -16,7 +16,6 @@ class Gridding(object):
 
     
     def run(self, u, v, Vis, Weights, type = 'weighted'): 
-        print("Gridding...")
         # Calculating bin edges.
         bin_centers = self.edges_centers(self._u_ft)[0]
         bin_edges_u = self.edges_centers(self._u_ft)[1]

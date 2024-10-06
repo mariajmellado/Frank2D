@@ -2,7 +2,7 @@ import constants as const
 from fourier2d import DiscreteFourierTransform2D as ft2d
 from preprocess_vis import Gridding
 from gaussian_process import CovarianceMatrix
-from fit import ConjugateGradientMethod
+from fitting import IterativeSolverMethod
 
 from frank.radial_fitters import FrankFitter
 from frank.geometry import SourceGeometry
@@ -21,6 +21,8 @@ class Frank2D(object):
         self._FT = ft2d(self._Rmax, self._Nx)
         self._geometry = geometry
 
+        self._gridded_data = None
+
         self._kernel = None
         self._x0 = None
         self._method = None
@@ -35,40 +37,45 @@ class Frank2D(object):
         end_time = time.time()
         execution_time = end_time - start_time
         print(f'  --> time = {execution_time/60 :.2f}  min | {execution_time: .2f} seconds')
+        self._gridded_data = {"u": u_gridded, "v": v_gridded,
+                             "vis": vis_gridded, "weights": weights_gridded}
 
-        return u_gridded, v_gridded, vis_gridded, weights_gridded
 
-    def set_kernel(self, kernel_params = [-5, 60, 1e4]):
-        print("Setting kernel...")
+    def set_kernel(self, kernel_params = [-5, 60, 1e4], method = 'cg'):
         kernel = CovarianceMatrix(self._Nx, self._Rmax, params = kernel_params)
         self._kernel =  kernel.SE_kernel
 
-    def set_guess(self, u, v, Vis, Weights):
-        self._x0 = self.guess_frank1d(u, v, Vis, Weights)
+    def set_guess(self, Vis):
+        self._x0 = Vis
 
-
-    def set_fit_method(self, u, v, Vis, Weights, kernel_params = None):
-        _, _, vis_gridded, weights_gridded = self.preprocess_vis(u, v, Vis, Weights)
+    def set_fit_method(self, u, v, Vis, Weights, kernel_params = None, method = None, rtol = None):
+        gridded = self._gridded_data
 
         if kernel_params is not None:
             self.set_kernel(kernel_params = kernel_params)
         else:
             self.set_kernel()
 
-        print("Setting fit method...")
-        self._method = ConjugateGradientMethod(vis_gridded, weights_gridded, self._kernel, self._FT, x0 = self._x0)
+        self.set_guess(gridded["vis"])
+        self._method = IterativeSolverMethod(gridded["vis"], gridded["weights"],
+                                             self._kernel, self._FT,
+                                             method = method, x0 = self._x0, rtol = rtol)
 
 
-    def fit(self, u, v, Vis, Weights, kernel_params = None, rtol = 1e-7, transform = "2fft"):
+    def fit(self, u, v, Vis, Weights, kernel_params = None, rtol = 1e-7, method = 'cg', transform = "2fft"):
+        # Visibility model.
+        print("Gridding...")
+        self.preprocess_vis(u, v, Vis, Weights)
 
-        self.set_fit_method(u, v, Vis, Weights, kernel_params = kernel_params)
+        print("Setting fit with " + method + " ...")
+        self.set_fit_method(u, v, Vis, Weights, kernel_params = kernel_params, method = method, rtol = rtol)
         
         print("Fitting...")
-        vis_model = self._method.solve(rtol = rtol)
+        vis_model = self._method.solve()
         self.sol_visibility = vis_model 
 
         # Image model.
-        print("Inverting...")
+        print("Inverting with " + transform + " ...")
         if transform == "2fft":
             start_time = time.time()
             I_model =  self._FT.transform_fast(vis_model, direction = 'backward')

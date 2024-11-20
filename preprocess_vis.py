@@ -1,14 +1,12 @@
-from fourier2d import DiscreteFourierTransform2D as ft2d
 import numpy as np
 from scipy.stats import binned_statistic_2d
 
 
 class Gridding(object):
-    def __init__(self, N, Rmax, unshifted = True):
+    def __init__(self, N, Rmax, FT, unshifted = True):
         self._N = N
         self._Rmax = Rmax
 
-        FT = ft2d(Rmax, N)
         self._u_ft =  FT._u
         self._v_ft =  FT._v
         
@@ -16,7 +14,6 @@ class Gridding(object):
 
     
     def run(self, u, v, Vis, Weights, type = 'weighted'): 
-        print("Gridding...")
         # Calculating bin edges.
         bin_centers = self.edges_centers(self._u_ft)[0]
         bin_edges_u = self.edges_centers(self._u_ft)[1]

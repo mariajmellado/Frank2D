@@ -42,8 +42,8 @@ class Plot():
         axs[0].set_title(title)
         axs[0].set_xlabel("dRa ['']")
         axs[0].set_ylabel("dDec ['']")
-        axs[0].text(-0.2, -1.7, r' $N^{2}$ pixels, with N = ' + str(Nx) + '  ', bbox={'facecolor': 'white', 'pad': 1, 'alpha': 0.8})
-        axs[0].text(1.5, -1.7, r' FOV: '+ str(2*Rout) +' arcseconds ', bbox={'facecolor': 'white', 'pad': 4, 'alpha': 0.8})
+        axs[0].text(np.max(x) -0.5, - np.max(y) + 0.3, r' $N^{2}$ pixels, with N = ' + str(Nx) + '  ', bbox={'facecolor': 'white', 'pad': 1, 'alpha': 0.8})
+        axs[0].text(-0.2, - np.max(y) + 0.3, r' FOV: '+ str(2*Rout) +' arcsecs', bbox={'facecolor': 'white', 'pad': 4, 'alpha': 0.8})
 
         if add_fourier_resolution:
             # Segundo subplot: el pixel específico

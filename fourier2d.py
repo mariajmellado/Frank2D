@@ -1,6 +1,6 @@
 import numpy as np
 
-class DiscreteFourierTransform2D(object):
+class FourierTransform2D(object):
     def __init__(self, Rmax, N):
         # Remember that now N is to create N**2 points in image plane.
         self._Xmax = Rmax #Rad

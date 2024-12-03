@@ -71,7 +71,7 @@ class Frank2D(object):
 
 
     def fit(self, u, v, Vis, Weights, type_kernel = 'SquareExponential', kernel_params = [-5, 60, 1e4],
-            rtol = 1e-7, method = 'cg', transform = "2fft", frank1d_guess = False):
+            rtol = 1e-7, method = 'cg', frank1d_guess = False):
         # Visibility model.
         print("Gridding...")
         inc, pa, dra, ddec = self._geometry
@@ -90,12 +90,14 @@ class Frank2D(object):
         print("Fitting...")
         vis_model = self._method.solve()
         self.sol_visibility = vis_model 
-
+    
+    def fft(self, transform = "2fft"):
         # Image model.
+        vis_model = self.sol_visibility
         print("Inverting with " + transform + " ...")
         if transform == "2fft":
             start_time = time.time()
-            I_model =  self._FT.transform_fast(vis_model, direction = 'backward')
+            I_model =  self._FT.fast_transform(vis_model, direction = 'backward')
             end_time = time.time()
             execution_time = end_time - start_time
             print(f'  --> time = {execution_time/60 :.2f}  min | {execution_time: .2f} seconds')

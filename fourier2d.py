@@ -61,7 +61,7 @@ class FourierTransform2D(object):
         H = norm * np.exp(factor*(np.outer(u, X) + np.outer(v, Y)))
         return H
 
-    def transform_fast(self, element, direction = 'forward'):
+    def fast_transform(self, element, direction = 'forward'):
         if direction == 'forward':
             return np.fft.fftshift(np.fft.fft2(element.reshape(self._Nx, self._Ny)).real)*(self._dx * self._dy)
         elif direction == 'backward':

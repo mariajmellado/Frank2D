@@ -37,11 +37,17 @@ class Wendland(CovarianceMatrix):
         
         self._m, self._c, self._l = params
 
-        self._j, self._k = 4, 1
-        self._H = 2*1.897367*self._l
+        if len(self._l) == 2:
+            self._lu, self._lv = self._l
+        else:
+            self._lu = self._lv = self._l
 
-        self._uh = self._u/self._H
-        self._vh = self._v/self._H
+        self._j, self._k = 4, 1
+        self._Hu = 2*1.897367*self._lu
+        self._Hv = 2*1.897367*self._lv
+
+        self._uh = self._u/self._Hu
+        self._vh = self._v/self._Hv
         self._power_spectrum_q1 = self.power_spectrum(self._q, self._m, self._c)
 
     def P_k(self, r, k):
@@ -62,6 +68,7 @@ class Wendland(CovarianceMatrix):
         factor[r_normalized > 1] = 0
 
         return amp * factor * self.P_k(r_normalized, self._k)
+
 
 
 

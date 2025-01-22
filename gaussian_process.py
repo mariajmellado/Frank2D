@@ -20,9 +20,11 @@ class SquareExponential(CovarianceMatrix):
         super().__init__(N, Rmax, params, FT)
 
         # SE Kernel params
-        self._m, self._c, self._l = params
+        self._m, self._c, self._l, self._k = params
+
         self._ul = self._u/self._l
         self._vl = self._v/self._l
+
         self._power_spectrum_q1 = self.power_spectrum(self._q, self._m, self._c)
                     
 
@@ -30,6 +32,15 @@ class SquareExponential(CovarianceMatrix):
         amp = np.sqrt(self._power_spectrum_q1 * self.power_spectrum(self._q[i], self._m, self._c))
 
         return amp * np.exp(-0.5 * ((self._ul - self._ul[i]) ** 2 + (self._vl - self._vl[i]) ** 2))
+    
+    def kernel_polar(self, i):
+        amp = np.sqrt(self._power_spectrum_q1 * self.power_spectrum(self._q[i], self._m, self._c))
+        q_i = (self._ul - self._ul[i]) ** 2 + (self._vl - self._vl[i]) ** 2
+        theta = np.arctan2(self._v, self._u)/self._k
+        theta_i = (theta - theta[i])**2
+
+        return  amp * np.exp(-0.5 * (q_i + theta_i))
+
 
 class Wendland(CovarianceMatrix):
     def __init__(self, N, Rmax, params, FT):
@@ -37,17 +48,11 @@ class Wendland(CovarianceMatrix):
         
         self._m, self._c, self._l = params
 
-        if len(self._l) == 2:
-            self._lu, self._lv = self._l
-        else:
-            self._lu = self._lv = self._l
-
         self._j, self._k = 4, 1
-        self._Hu = 2*1.897367*self._lu
-        self._Hv = 2*1.897367*self._lv
+        self._H = 2*1.897367*self._l
 
-        self._uh = self._u/self._Hu
-        self._vh = self._v/self._Hv
+        self._uh = self._u/self._H
+        self._vh = self._v/self._H
         self._power_spectrum_q1 = self.power_spectrum(self._q, self._m, self._c)
 
     def P_k(self, r, k):
@@ -68,6 +73,7 @@ class Wendland(CovarianceMatrix):
         factor[r_normalized > 1] = 0
 
         return amp * factor * self.P_k(r_normalized, self._k)
+    
 
 
 

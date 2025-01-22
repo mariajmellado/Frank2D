@@ -7,7 +7,7 @@ import time
 class IterativeSolverMethod():
     def __init__(self, Vis, Weights, kernel_row, FT, method = 'cg', rtol = 1e-7,  x0=None):
         self._FT = FT
-        self._N2 = self._FT._N2
+        self._N2 = self._FT._Ny*self._FT._Nx
 
         self._Vis = Vis
         self._Weights = Weights

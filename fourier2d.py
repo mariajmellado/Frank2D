@@ -1,7 +1,7 @@
 import numpy as np
 
 class FourierTransform2D(object):
-    def __init__(self, Rmax, N):
+    def __init__(self, Rmax, N, Geometry):
         # Remember that now N is to create N**2 points in image plane.
         self._Xmax = Rmax #Rad
         self._Ymax = Rmax
@@ -20,8 +20,16 @@ class FourierTransform2D(object):
         self._dy = 2*self._Ymax/self._Ny
 
         # Frequency space collocation points.
-        self._u = np.fft.fftfreq(self._Nx, d = self._dx)
-        self._v = np.fft.fftfreq(self._Ny, d = self._dy)
+        self._u = np.fft.fftfreq(self._Nx, d = self._dx)# unshifted
+        self._v = np.fft.fftfreq(self._Ny, d = self._dy) # unshifted
+        self._u_shifted = np.fft.fftshift(self._u)
+        self._v_shifted = np.fft.fftshift(self._v)
+        
+        #if Geometry._deproject:
+        #    print("Deprojecting FT...")
+        #    self._u, self._v, _ = Geometry.deproject(self._u, self._v)
+        #    self._u_shifted, self._v_shifted, _ = Geometry.deproject(self._u_shifted, self._v_shifted)
+
         u_, v_ = np.meshgrid(self._u, self._v, indexing='ij') 
         # u_n.shape = N**2 X 1, so now, we have N**2 collocation points.
         u_n, v_n = u_.reshape(-1), v_.reshape(-1)
@@ -32,7 +40,7 @@ class FourierTransform2D(object):
         self._Vn = v_n
 
     def get_collocation_points(self):        
-        return np.array([self.Xn, self.Yn]), np.array([self._Un, self._Vn])
+        return np.array([self._Xn, self._Yn]), np.array([self._Un, self._Vn])
 
     def coefficients(self, u = None, v = None, x = None, y = None, direction="forward"):
         #start_time = time.time()

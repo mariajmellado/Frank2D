@@ -49,7 +49,7 @@ class Plot():
         axs[0].text(
             xlim[0] + 0.1 * (xlim[1] - xlim[0]),  # 10% desde el borde izquierdo
             ylim[0] + 0.1 * (ylim[1] - ylim[0]),  # 10% desde el borde inferior
-            r' FOV: ' + str(2 * Rout) + ' arcsecs ' + r'| $N^{2}$ pixels,  N = ' + str(Nx) + '  ',
+            r'  $N^{2}$ pixels,  N = ' + str(Nx) + '  ',
             bbox={'facecolor': 'white', 'pad': 4, 'alpha': 0.8}
         )
 

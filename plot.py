@@ -9,9 +9,9 @@ class Plot():
     def __init__(self, Frank2D):
         self._frank2d = Frank2D
         
-    def get_image(self, title = "Model", add_fourier_resolution = False, log_norm = False):
+    def get_image(self, title = "Model", size = 7,  add_fourier_resolution = False, log_norm = False):
         frank2d = self._frank2d
-        I = np.transpose(frank2d.sol_intensity)
+        I = frank2d.sol_intensity
         Nx = frank2d._Nx
         Ny = frank2d._Ny
         dx = frank2d._FT._dx*const.rad_to_arcsec
@@ -28,13 +28,13 @@ class Plot():
         if add_fourier_resolution:
             fig, axs = plt.subplots(1, 2, figsize=(10, 5), gridspec_kw={'width_ratios': [3, 1]})
         else:
-            fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+            fig, ax = plt.subplots(1, 1, figsize=(size, size))
             axs = [ax]
         
         norm = LogNorm() if log_norm else None
 
         # Primer subplot.
-        plot = axs[0].pcolormesh(x[::-1], y, I, cmap='magma', norm=norm)
+        plot = axs[0].pcolormesh(x, y, I, cmap='magma', norm=norm)
         axs[0].invert_xaxis()
         cmap = plt.colorbar(plot, ax=axs[0])
         cmap.set_label(r'I [Jy $sr^{-1}$]', size=15)
@@ -42,8 +42,16 @@ class Plot():
         axs[0].set_title(title)
         axs[0].set_xlabel("dRa ['']")
         axs[0].set_ylabel("dDec ['']")
-        axs[0].text(-0.2, -1.7, r' $N^{2}$ pixels, with N = ' + str(Nx) + '  ', bbox={'facecolor': 'white', 'pad': 1, 'alpha': 0.8})
-        axs[0].text(1.5, -1.7, r' FOV: '+ str(2*Rout) +' arcseconds ', bbox={'facecolor': 'white', 'pad': 4, 'alpha': 0.8})
+
+        xlim = axs[0].get_xlim()
+        ylim = axs[0].get_ylim()
+
+        axs[0].text(
+            xlim[0] + 0.1 * (xlim[1] - xlim[0]),  # 10% desde el borde izquierdo
+            ylim[0] + 0.1 * (ylim[1] - ylim[0]),  # 10% desde el borde inferior
+            r'  $N^{2}$ pixels,  N = ' + str(Nx) + '  ',
+            bbox={'facecolor': 'white', 'pad': 4, 'alpha': 0.8}
+        )
 
         if add_fourier_resolution:
             # Segundo subplot: el pixel específico
@@ -76,6 +84,8 @@ class Plot():
             # Ajustar el tamaño de los subplots
             plt.tight_layout()
             plt.subplots_adjust(wspace=0.2)
+        
+        plt.gca().set_aspect('equal') 
 
         plt.show()
 

@@ -1,8 +1,9 @@
 import constants as const
-from fourier2d import DiscreteFourierTransform2D as ft2d
+from fourier2d import FourierTransform2D
+from geometry import Geometry
 from preprocess_vis import Gridding
-from gaussian_process import CovarianceMatrix
-from fit import ConjugateGradientMethod
+from gaussian_process import SquareExponential, Wendland
+from fitting import IterativeSolverMethod
 
 from frank.radial_fitters import FrankFitter
 from frank.geometry import SourceGeometry
@@ -14,64 +15,103 @@ import time
 
 
 class Frank2D(object):
-    def __init__(self, N, Rmax, geometry = [None, None, None, None]):
+    def __init__(self, N, Rmax, geom):
         self._Nx = self._Ny =  N
         self._N2 = self._Nx*self._Ny
-        self._Rmax = Rmax/const.rad_to_arcsec #rad
-        self._FT = ft2d(self._Rmax, self._Nx)
-        self._geometry = geometry
+        self._Rmax = Rmax/const.rad_to_arcsec
+        self._Geometry = geom
+        self._FT = FourierTransform2D(self._Rmax, self._Nx, self._Geometry)
 
+        self._gridded_data = None
         self._kernel = None
         self._x0 = None
         self._method = None
+        self._frank1d_guess = None
+
+        self._set_guess = False
+        self._set_kernel = False
+        self._set_gridded_data = False
 
         self.sol_visibility = None
         self.sol_intensity = None
 
-    def preprocess_vis(self, u, v, Vis, Weights):
-        start_time = time.time()
-        grid = Gridding(self._Nx, self._Rmax)
-        u_gridded, v_gridded, vis_gridded, weights_gridded = grid.run(u, v, Vis, Weights)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        print(f'  --> time = {execution_time/60 :.2f}  min | {execution_time: .2f} seconds')
+    def set_kernel(self, type_kernel, kernel_params):
+        print("Setting kernel: " + type_kernel + '...')
+        if type_kernel == 'SquareExponential':
+            self._kernel =  SquareExponential(self._Nx, self._Rmax, kernel_params, self._FT).kernel_polar
+        elif type_kernel == 'Wendland':
+            self._kernel = Wendland(self._Nx, self._Rmax, kernel_params, self._FT).kernel
+        
+        self._set_kernel = True
 
-        return u_gridded, v_gridded, vis_gridded, weights_gridded
+    def set_guess(self, Vis):
+        print("Setting guess...")
+        self._x0 = Vis
+        self._set_guess = True
 
-    def set_kernel(self, kernel_params = [-5, 60, 1e4]):
-        print("Setting kernel...")
-        kernel = CovarianceMatrix(self._Nx, self._Rmax, params = kernel_params)
-        self._kernel =  kernel.SE_kernel
+    def set_fit_method(self, type_kernel, kernel_params, method, rtol):
+        if not self._set_kernel:
+            self.set_kernel(type_kernel = type_kernel, kernel_params = kernel_params)
 
-    def set_guess(self, u, v, Vis, Weights):
-        self._x0 = self.guess_frank1d(u, v, Vis, Weights)
+        if not self._set_guess:
+            print("Setting guess... Visibilities gridded")
+            self._x0 = self._gridded_data["vis"]
+        
+        self._method = IterativeSolverMethod(self._gridded_data["vis"], self._gridded_data["weights"],
+                                             self._kernel, self._FT,
+                                             method = method, x0 = self._x0, rtol = rtol)
+                                            
+    def set_gridded_data(self, u, v, Vis, Weights):
+        print("Setting gridded data...")
+        self._gridded_data = {"u": u, "v": v, "vis": Vis, "weights": Weights}
+        self._set_gridded_data = True
 
+    def preprocess_vis(self, u, v, Vis, Weights, hermitian = True, vis_component = "all"):
+        if not self._set_gridded_data:
+            start_time = time.time()
+            grid = Gridding(self._Nx, self._Rmax, self._FT, self._Geometry)
+            u_gridded, v_gridded, vis_gridded, weights_gridded = grid.run(u, v, Vis, Weights,
+                                                                          hermitian = hermitian)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            print(f'  --> time = {execution_time/60 :.2f}  min | {execution_time: .2f} seconds')
 
-    def set_fit_method(self, u, v, Vis, Weights, kernel_params = None):
-        _, _, vis_gridded, weights_gridded = self.preprocess_vis(u, v, Vis, Weights)
+            if vis_component == "real":
+                vis_gridded = vis_gridded.real
+            elif vis_component == "imag":
+                vis_gridded = vis_gridded.imag*1j
 
-        if kernel_params is not None:
-            self.set_kernel(kernel_params = kernel_params)
-        else:
-            self.set_kernel()
+            self.set_gridded_data(u_gridded, v_gridded, vis_gridded, weights_gridded)
 
-        print("Setting fit method...")
-        self._method = ConjugateGradientMethod(vis_gridded, weights_gridded, self._kernel, self._FT, x0 = self._x0)
+    def fit(self, u, v, Vis, Weights, type_kernel = 'SquareExponential', kernel_params = [-5, 60, 1e4],
+            rtol = 1e-7, method = 'cg', frank1d_guess = False,
+            hermitian = True, vis_component = "all"):
 
+        # Visibility model.
+        print("Gridding...")
+        self.preprocess_vis(u, v, Vis, Weights, hermitian = hermitian, vis_component = vis_component)
 
-    def fit(self, u, v, Vis, Weights, kernel_params = None, rtol = 1e-7, transform = "2fft"):
+        # Frank1D guess.
+        if frank1d_guess:
+            print("Setting guess with Frank1D ...")
+            self.frank1d(u, v, Vis, Weights)
+            self.set_guess(self._frank1d_guess)
 
-        self.set_fit_method(u, v, Vis, Weights, kernel_params = kernel_params)
+        print("Setting fit with " + method + " ...")
+        self.set_fit_method(type_kernel, kernel_params, method, rtol)
         
         print("Fitting...")
-        vis_model = self._method.solve(rtol = rtol)
+        vis_model = self._method.solve()
         self.sol_visibility = vis_model 
-
+    
+    def fft(self, transform = "2fft"):
         # Image model.
-        print("Inverting...")
+        vis_model = self.sol_visibility
+        I_model = None
+        print("Inverting with " + transform + " ...")
         if transform == "2fft":
             start_time = time.time()
-            I_model =  self._FT.transform_fast(vis_model, direction = 'backward')
+            I_model =  self._FT.fast_transform(vis_model, direction = 'backward')
             end_time = time.time()
             execution_time = end_time - start_time
             print(f'  --> time = {execution_time/60 :.2f}  min | {execution_time: .2f} seconds')
@@ -82,20 +122,22 @@ class Frank2D(object):
             execution_time = end_time - start_time
             print(f'  --> time = {execution_time/60 :.2f}  min | {execution_time: .2f} seconds')
 
-        self.sol_intensity = I_model.real.reshape(self._Nx, self._Ny)
-    
-    # TO DO
-    def guess_frank1d(self, u, v, Vis, Weights, alpha = 1.3, w_smooth = 1e-1, n_pts = 300):
-        FT = self._FT
-        inc, pa, dra, ddec = self._geometry
-        geom = SourceGeometry(inc = inc, PA = pa, dRA = dra, dDec = ddec)
+        self.sol_intensity = np.transpose(I_model.real.reshape(self._Nx, self._Ny))
+
+
+    def frank1d(self, u, v, Vis, Weights, alpha = 1.3, w_smooth = 1e-1, n_pts = 300):
+        geom = self._Geometry
+        inc, pa, dra, ddec = geom._inc, geom._pa, geom._dra, geom._ddec
         Rout = self._Rmax*const.rad_to_arcsec
+        geom = SourceGeometry(inc= inc, PA= pa, dRA= dra, dDec= ddec)
         FF = FrankFitter(Rout, n_pts, geom, alpha = alpha, weights_smooth = w_smooth)
         sol = FF.fit(u, v, Vis, Weights)
 
-        I2D, _, _ = sweep_profile(sol.r, sol.mean,
-                                   xmax = FT._Xmax*const.rad_to_arcsec,
-                                   ymax = FT._Ymax*const.rad_to_arcsec,
-                                   dr = (FT._x[1] - FT._x[0])*const.rad_to_arcsec)
-        
-        return I2D.flatten()
+        Geometry_ = Geometry(inc, pa, dra, ddec, deproject = False)
+        FT_ = FourierTransform2D(self._Rmax, self._Nx, Geometry_)
+        Grid_ = Gridding(self._Nx, self._Rmax, FT_, Geometry_)
+        u_gridded, v_gridded, _, _ = Grid_.run(u, v, Vis, Weights)
+
+        u, v, = u_gridded, v_gridded
+        vis_fit_1d = sol.predict(u, v, sol.mean, geometry = geom)
+        self._frank1d_guess = vis_fit_1d

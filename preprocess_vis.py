@@ -1,100 +1,105 @@
-from fourier2d import DiscreteFourierTransform2D as ft2d
 import numpy as np
 from scipy.stats import binned_statistic_2d
-
+import constants as const
 
 class Gridding(object):
-    def __init__(self, N, Rmax, unshifted = True):
+    def __init__(self, N, Rmax, FT, Geometry):
         self._N = N
         self._Rmax = Rmax
+        self._FT =  FT
+        self._Geometry = Geometry
 
-        FT = ft2d(Rmax, N)
-        self._u_ft =  FT._u
-        self._v_ft =  FT._v
+    def run(self, u, v, Vis, Weights, type = 'weighted', shift = False, hermitian = True):  
         
-        self._unshifted = unshifted
+        u_, v_, Vis_ = u, v, Vis
 
-    
-    def run(self, u, v, Vis, Weights, type = 'weighted'): 
-        print("Gridding...")
+        if self._Geometry._deproject:
+            print("Deprojecting...")    
+            u_, v_, Vis_ = self._Geometry.apply_correction(u, v, Vis)
+        
         # Calculating bin edges.
-        bin_centers = self.edges_centers(self._u_ft)[0]
-        bin_edges_u = self.edges_centers(self._u_ft)[1]
-        bin_edges_v = self.edges_centers(self._v_ft)[1]
+        bin_centers = self.edges_centers(self._FT._u_shifted)[0]
+        bin_edges_u = self.edges_centers(self._FT._u_shifted)[1]
+        bin_edges_v = self.edges_centers(self._FT._v_shifted)[1]
+
 
         if type == 'weighted':
-            u_gridded, v_gridded, vis_gridded, weights_gridded = self.weighted_gridding(u, v, Vis, Weights, bin_centers, bin_edges_u, bin_edges_v)
+            u_gridded, v_gridded, vis_gridded, weights_gridded = self.weighted_gridding(u_, v_, Vis_, Weights,
+                                                                                        bin_centers, bin_edges_u, bin_edges_v,
+                                                                                        shift = shift, hermitian = hermitian)
 
-        if self._unshifted:
-            u_gridded, v_gridded, vis_gridded, weights_gridded = self.unshiftting(u_gridded, v_gridded, vis_gridded, weights_gridded, self._N)
-
-        return u_gridded, v_gridded, vis_gridded, weights_gridded
+            return u_gridded, v_gridded, vis_gridded, weights_gridded
 
     def edges_centers(self, freq):
         correction = (freq[1] - freq[0])/2
-        bin_centers = np.fft.fftshift(freq)
-        edges_=  bin_centers - correction
-        edges = np.concatenate((edges_, [edges_[-1] + 2*correction]))
-        return bin_centers, edges
+        
+        # Creating the grid with shifted scheme.
+        bin_centers = freq
+        bin_edges_=  bin_centers - correction
+        bin_edges = np.concatenate((bin_edges_, [bin_edges_[-1] + 2*correction]))
+        return bin_centers, bin_edges
     
-    
-    def weighted_gridding(self, u, v, Vis, Weights, centers, edges_u, edges_v):
-        # Calculating grid
+    def weighted_gridding(self, u, v, Vis, Weights, centers, edges_u, edges_v, shift = False, hermitian = True):
+        # Calculating values in grid
         vis_weights_sum_bin, _, _, _ = binned_statistic_2d(u, v, Vis*Weights, 'sum', bins=[edges_u, edges_v], expand_binnumbers = False)
         weights_sum_bin, _, _, _ = binned_statistic_2d(u, v, Weights, 'sum', bins=[edges_u, edges_v], expand_binnumbers = False)
         vis_gridded_matrix =  vis_weights_sum_bin/weights_sum_bin
         weights_gridded_matrix, _, _, _ = binned_statistic_2d(u, v, Weights, 'sum', bins=[edges_u, edges_v], expand_binnumbers = False)
-        
-    
-        u_gridded, v_gridded, vis_gridded, weights_gridded = self.freq_vis_gridded_1d(centers, vis_gridded_matrix, weights_gridded_matrix)
-    
-        # change Nans by 0 in vis.
+
+        # Change Nans by 0 in vis.
+        vis_gridded = np.nan_to_num(vis_gridded_matrix, nan=0)
+        weights_gridded = np.nan_to_num(weights_gridded_matrix, nan=0)
+
+        # Imposing hermitian conjugate property.
+        if hermitian:
+            vis_gridded, weights_gridded = self.enforce_hermitian_symmetry(vis_gridded, weights_gridded)
+
+        if shift:
+            # Shifting the grid, i.e. spatial frequencies centered in 0.
+            u_gridded, v_gridded, vis_gridded, weights_gridded = self.shiftting(centers, vis_gridded, weights_gridded)
+        else:
+            # Unshifted grid.
+            u_gridded, v_gridded = self._FT._Un, self._FT._Vn # unshifted by default.
+            vis_gridded = np.fft.fftshift(vis_gridded).flatten()
+            weights_gridded = np.fft.fftshift(weights_gridded).flatten()
+
+        # Change Nans by 0 in vis again.
         vis_gridded = np.nan_to_num(vis_gridded, nan=0)
         weights_gridded = np.nan_to_num(weights_gridded, nan=0)
-    
-        # Arrays for UV-table.
+            
         return u_gridded, v_gridded, vis_gridded, weights_gridded
 
+    def enforce_hermitian_symmetry(self, vis, wts):
+        nx, ny = vis.shape
+        cx, cy = nx // 2, ny // 2
     
-    def freq_vis_gridded_1d(self, freqs, vis_matrix, weights_matrix):
+        for x in range(cx, nx):  # Iterate over the right half
+            for y in range(ny):
+                x_sym = (2 * cx - x) % nx
+                y_sym = (2 * cy - y) % ny
+    
+                # Current values
+                v_xy = vis[y, x]
+                v_neg_xy = vis[y_sym, x_sym]
+                
+                # Check if values are not Hermitian symmetric
+                if not np.isclose(v_neg_xy.real, v_xy.real):
+                    w_xy = wts[y, x]
+                    w_neg_xy = wts[y_sym, x_sym]
+                    w_tot = w_xy + w_neg_xy
+    
+                    # Avoid division by zero
+                    if w_tot > 0:
+                        val = (np.conj(v_neg_xy) * w_neg_xy + v_xy * w_xy) / w_tot
+                        vis[y, x] = val
+                        vis[y_sym, x_sym] = np.conj(val)
+                        wts[y, y] = w_tot
+                        wts[y_sym, x_sym] = w_tot
+        return vis, wts
+
+    def shiftting(self, freqs, vis_matrix, weights_matrix):
         vis_gridded = vis_matrix.flatten()
         weights_gridded = weights_matrix.flatten()
         u_, v_ = np.meshgrid(freqs, freqs, indexing='ij') 
         u_gridded, v_gridded = u_.reshape(-1), v_.reshape(-1)
         return u_gridded, v_gridded, vis_gridded, weights_gridded
-
-    
-    def unshiftting(self, u_gridded, v_gridded, vis_gridded, weights_gridded, N):
-        # shift in u.
-        indexes_pos = np.where(u_gridded>=0)[0]
-        indexes_neg = np.where(u_gridded<0)[0]
-        new_indexes_u = np.concatenate((indexes_pos, indexes_neg))
-        new_u,  new_v, new_vis, new_weights= u_gridded[new_indexes_u], v_gridded[new_indexes_u], vis_gridded[new_indexes_u], weights_gridded[new_indexes_u]
-    
-        # shift in v.
-        new_indexes = self.get_reordered_indices_v_freq(new_v)
-        new_u, new_v, new_vis, new_weights =  new_u[new_indexes], new_v[new_indexes], new_vis[new_indexes], new_weights[new_indexes]
-    
-        new_weights[new_weights==0] = 1e-5 * np.median(new_weights[new_weights!=0])
-        
-        return new_u, new_v, new_vis, new_weights
-    
-    def get_reordered_indices_v_freq(self, array):
-        # Number of complete blocks in the array
-        num_blocks = len(array) // self._N
-    
-        # Reorder pattern: 0 first, then positives, then negatives
-        block_indices = np.arange(self._N)
-        reordered_block_indices = np.concatenate((
-            block_indices[array[block_indices] == 0],   # Index of 0
-            block_indices[array[block_indices] > 0],    # Indices of positives
-            block_indices[array[block_indices] < 0]     # Indices of negatives
-        ))
-    
-        # Apply the reordering pattern to all blocks
-        reordered_indices = np.concatenate([
-            reordered_block_indices + i * self._N for i in range(num_blocks)
-        ])
-    
-        return reordered_indices
-    

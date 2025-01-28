@@ -31,7 +31,7 @@ class Gridding(object):
             return u_gridded, v_gridded, vis_gridded, weights_gridded
 
     def edges_centers(self, freq):
-        correction = (freq[1] - freq[0])/2
+        correction = (freq[1] - freq[0])/2 # bin width of the grid.
         
         # Creating the grid with shifted scheme.
         bin_centers = freq

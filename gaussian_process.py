@@ -72,7 +72,7 @@ class Wendland(CovarianceMatrix):
         factor = (1 - r_normalized)**self._j
         factor[r_normalized > 1] = 0
 
-        return amp * factor * self.P_k(r_normalized, self._k)
+        return  factor * self.P_k(r_normalized, self._k), amp
     
 
 

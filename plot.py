@@ -86,7 +86,7 @@ class Plot():
             plt.subplots_adjust(wspace=0.2)
         
         plt.gca().set_aspect('equal') 
-
+    
         plt.show()
 
 

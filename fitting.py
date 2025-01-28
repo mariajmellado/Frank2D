@@ -20,12 +20,14 @@ class IterativeSolverMethod():
         self._A = None
         self._b = None
         self._A_precond = None
+        self._power_spectrum = None
 
         self._sparse_system = None
 
         self._set_A = False
         self._set_b = False
         self._set_A_precond = False
+        self._set_power_spectrum = False
     
     def get_method(self):
         method = self._method
@@ -52,6 +54,11 @@ class IterativeSolverMethod():
         print("Setting A_precond...")
         self._A_precond = A_precond
         self._set_A_precond = True
+
+    def set_power_spectrum(self, power_spectrum):
+        print("Setting power_spectrum...")
+        self._power_spectrum = power_spectrum
+        self._set_power_spectrum = True
 
     def _get_atol_rtol(self, name, b_norm, atol=0., rtol=1e-5):
         """
@@ -381,72 +388,38 @@ class IterativeSolverMethod():
             # Return incomplete progress
             return postprocess(x), maxiter
 
-    def linear_op_A(self):
-        def SWI(vis_model):
-            return np.array([ 
-                    np.dot(np.add(
-                        self._kernel_row(i)*self._Weights, np.eye(1, self._N2, i).flatten()), vis_model)
-                    for i in range(self._N2)
-                    ])
-        def WSI(vis_model):
-            return np.array([ 
-                    np.dot(np.add(
-                        self._kernel_row(i)*self._Weights[i], np.eye(1, self._N2, i).flatten()), vis_model)
-                    for i in range(self._N2)
-                    ])
-        
-        return LinearOperator((self._N2, self._N2 ), matvec = SWI, rmatvec = WSI)
-    
-    def linear_op_b(self):
-        def SW(vis_gridded):
-            return np.array([
-                    np.dot(
-                        self._kernel_row(i)*self._Weights, vis_gridded)
-                    for i in range(self._N2)
-                    ])
-        def WS(vis_gridded):
-            return np.array([
-                    np.dot(
-                        self._kernel_row(i)*self._Weights[i], vis_gridded)
-                    for i in range(self._N2)
-                    ])
-
-        bop = LinearOperator((self._N2, self._N2), matvec= SW, rmatvec= WS)
-        return bop.matvec(self._Vis)
-
-    def linear_op_A_precond(self):
-        def diag_SWI(vis_model):
-            return np.array([ 
-                    ((self._kernel_row(i)[i] * self._Weights[i] + 1)**(-1) * vis_model[i])
-                    for i in range(self._N2)
-                    ])
-
-        return LinearOperator((self._N2, self._N2), matvec=diag_SWI, rmatvec=diag_SWI)
-
     def create_sparse_system(self):
+        indexes = []
+
+        data_ps = []
+        indptr_ps = []
+
+        data_b = []
+        indptr_b = [0]
+
         data_A = []
-        indices_A = []
         indptr_A = [0]
 
         data_Aprecond = []
         indices_Aprecond = []
         indptr_Aprecond = [0]
 
-        data_b = []
-        indices_b = []
-        indptr_b = [0]
-
         for i in range(self._N2):  
-            row = self._kernel_row(i)
+            row, row_powerspectrum = self._kernel_row(i)
             weights = self._Weights
 
             non_zero_indices = np.nonzero(row)[0]
-
+            power_spectrum = row_powerspectrum[non_zero_indices]
             weighted_non_zero_values = row[non_zero_indices] * weights[non_zero_indices]
 
+            indexes.extend(non_zero_indices)
+
+            # Power spectrum
+            data_ps.extend(power_spectrum)
+            indptr_ps.extend(len(data_ps))
+
             # b
-            data_b.extend(weighted_non_zero_values)
-            indices_b.extend(non_zero_indices)
+            data_b.extend(weighted_non_zero_values/power_spectrum)
             indptr_b.append(len(data_b))
             
             diagonal_pos = np.searchsorted(non_zero_indices, i)
@@ -455,39 +428,49 @@ class IterativeSolverMethod():
 
             # A
             data_A.extend(weighted_non_zero_values)
-            indices_A.extend(non_zero_indices)
             indptr_A.append(len(data_A))
 
             # Preconditioner of A
             data_Aprecond.extend([diag_value**(-1)])
             indices_Aprecond.extend([i])
             indptr_Aprecond.append(len(data_Aprecond))
+
+        indexes = np.array(indexes)
+
+        data_ps = np.array(data_ps)
+        indptr_ps = np.array(indptr_ps)
+
+        data_b = np.array(data_b)
+        indptr_b = np.array(indptr_b)
             
         data_A = np.array(data_A)
-        indices_A = np.array(indices_A)
         indptr_A = np.array(indptr_A)
 
         data_Aprecond = np.array(data_Aprecond)
         indices_Aprecond = np.array(indices_Aprecond)
         indptr_Aprecond = np.array(indptr_Aprecond)
 
-        data_b = np.array(data_b)
-        indices_b = np.array(indices_b)
-        indptr_b = np.array(indptr_b)
+        power_spectrum_csr = csr_matrix((data_ps, indexes, indptr_ps), shape=(self._N2, self._N2))
 
-        A_csr = csr_matrix((data_A, indices_A, indptr_A), shape=(self._N2, self._N2))
+        b_csr = csr_matrix((data_b, indexes, indptr_b), shape=(self._N2, self._N2))
+        A_csr = csr_matrix((data_A, indexes, indptr_A), shape=(self._N2, self._N2))
         A_precond_csr = csr_matrix((data_Aprecond, indices_Aprecond, indptr_Aprecond), shape=(self._N2, self._N2))
-        b_csr = csr_matrix((data_b, indices_b, indptr_b), shape=(self._N2, self._N2))
 
         self.set_A(self.linear_operator(A_csr))
         self.set_A_precond(self.linear_operator(A_precond_csr))
         self.set_b(self.linear_operator(b_csr).matvec(self._Vis))
+        self.set_power_spectrum(self.linear_operator_ps(power_spectrum_csr))
 
     def linear_operator(self, A):
         def dot_product(x):
             return A.dot(x)
 
-        return LinearOperator((self._N2, self._N2), matvec=dot_product)    
+        return LinearOperator((self._N2, self._N2), matvec=dot_product)
+
+    def linear_operator_ps(self, A):
+        def hadamard(B):
+            return A*B
+        return LinearOperator((self._N2, self._N2), matvec=hadamard)
 
 
     def solve(self):
@@ -519,5 +502,8 @@ class IterativeSolverMethod():
         print("  --> Fit correctly?  ", fit_correctly)
         if fit_correctly:
             print("                                    !!!!!!!!!!!!!!!!!!!")
+
+        X = self._power_spectrum.hadamard(x.reshape(self._FT._Nx, self._FT._Ny))
+        x = X.flatten()
 
         return x

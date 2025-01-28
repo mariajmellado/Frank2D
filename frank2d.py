@@ -35,6 +35,7 @@ class Frank2D(object):
         self.sol_visibility = None
         self.sol_intensity = None
 
+    """ Setters """
     def set_kernel(self, type_kernel, kernel_params):
         print("Setting kernel: " + type_kernel + '...')
         if type_kernel == 'SquareExponential':
@@ -66,6 +67,7 @@ class Frank2D(object):
         self._gridded_data = {"u": u, "v": v, "vis": Vis, "weights": Weights}
         self._set_gridded_data = True
 
+    """ Getters """
     def preprocess_vis(self, u, v, Vis, Weights, hermitian = True, vis_component = "all"):
         if not self._set_gridded_data:
             start_time = time.time()
